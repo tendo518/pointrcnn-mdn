@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import torch.distributions as dist
 from . import box_utils
 from pcdet.ops.iou3d_nms import iou3d_nms_utils
 
@@ -647,3 +647,63 @@ def calculate_iou_reg_loss_centerhead(batch_box_preds, mask, ind, gt_boxes):
 
     loss = (1.0 - iou).sum() / torch.clamp(mask.sum(), min=1e-4)
     return loss
+
+
+# reference: https://github.com/sagelywizard/pytorch-mdn/issues/6
+def mdn_loss(pi, sigma, mu, target):
+    """
+
+    Args:
+        pi: B #G
+        sigma: B #G O
+        mu: B #G O
+        target: B O
+    Returns:
+        B O
+    """
+    model_dist = dist.Normal(mu, sigma)
+    target = target.unsqueeze(1).expand_as(sigma)
+    log_prob = model_dist.log_prob(target)
+    weighted_log_prob = torch.log(pi).unsqueeze(-1).expand_as(sigma) + log_prob
+    return -torch.logsumexp(weighted_log_prob, dim=1)
+
+# ONEOVERSQRT2PI = 1.0 / torch.sqrt(2 * torch.pi)
+# def gaussian_probability(pi, sigma, mu, target):
+#     """Returns the probability of `target` given MoG parameters `sigma` and `mu`.
+#
+#     Arguments:
+#         sigma (BxGxO): The standard deviation of the Gaussians. B is the batch
+#             size, G is the number of Gaussians, and O is the number of
+#             dimensions per Gaussian.
+#         mu (BxGxO): The means of the Gaussians. B is the batch size, G is the
+#             number of Gaussians, and O is the number of dimensions per Gaussian.
+#         target (BxI): A batch of target. B is the batch size and I is the number of
+#             input dimensions.
+#
+#     Returns:
+#         probabilities (BxG): The probability of each point in the probability
+#             of the distribution in the corresponding sigma/mu index.
+#     """
+#     target = target.unsqueeze(1).expand_as(sigma)
+#
+#     # old version....
+#     # ret = ONEOVERSQRT2PI * torch.exp(-0.5 * ((target - mu) / sigma)**2) / sigma
+#     # probs_old = pi * torch.prod(ret, 2)
+#
+#     log_ret = torch.log(ONEOVERSQRT2PI) - 0.5 * ((target - mu) / sigma)**2 - torch.log(sigma)
+#     log_prob = torch.log(pi) + log_ret.sum(2)
+#
+#     probs = torch.exp(log_prob)
+#
+#     return probs
+#
+#
+# def mdn_loss(pi, sigma, mu, target):
+#     """Calculates the error, given the MoG parameters and the target
+#
+#     The loss is the negative log likelihood of the data given the MoG
+#     parameters.
+#     """
+#     prob = gaussian_probability(pi, sigma, mu, target)
+#     nll = -torch.log(torch.sum(prob, dim=1))
+#     return torch.mean(nll)

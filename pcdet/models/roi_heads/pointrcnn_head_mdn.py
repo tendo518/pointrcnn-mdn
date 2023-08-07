@@ -256,8 +256,9 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
             rcnn_loss_reg = (rcnn_loss_reg.view(rcnn_batch_size, -1) * fg_mask.unsqueeze(
                 dim=-1).float()).sum() / max(fg_sum, 1)
             rcnn_loss_reg = rcnn_loss_reg * loss_cfgs.LOSS_WEIGHTS['rcnn_reg_weight']
-
-            tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
+            if fg_sum > 0:
+                # ignore 0
+                tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
 
             if loss_cfgs.CORNER_LOSS_REGULARIZATION:
                 raise NotImplementedError

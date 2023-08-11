@@ -51,6 +51,7 @@ def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, ac
 
         model.train()
         optimizer.zero_grad()
+        # with torch.autograd.detect_anomaly():
 
         with torch.cuda.amp.autocast(enabled=use_amp):
             loss, tb_dict, disp_dict = model_func(model, batch)
@@ -58,6 +59,14 @@ def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, ac
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), optim_cfg.GRAD_NORM_CLIP)
+        nan_skip_flag = False
+        for name, param in model.named_parameters():
+            if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
+                logger.warn(f"{name} have ambiguous gradient, skip iteration")
+                nan_skip_flag = True
+        if nan_skip_flag:
+            continue
+        
         scaler.step(optimizer)
         scaler.update()
 

@@ -56,7 +56,7 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
         #     fc_list=self.model_cfg.REG_FC
         # )
 
-        self.mdn_reg_layers = nn.ModuleList([
+        self.mdn_reg_layers_list = nn.ModuleList([
             self.make_fc_layers(
                 input_channels=channel_in,
                 output_channels=self.box_coder.code_size * self.num_class,
@@ -64,7 +64,8 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
             )
             for _ in range(self.model_cfg.MDN_CONFIG.NUM_MIXTURE_DIST)
         ])
-        self.mdn_var_reg_layers = nn.ModuleList([
+        # TODO this produce NaN in backwards
+        self.mdn_sigma_reg_layers_list = nn.ModuleList([
             self.make_fc_layers(
                 input_channels=channel_in,
                 output_channels=self.box_coder.code_size * self.num_class,
@@ -72,7 +73,7 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
             )
             for _ in range(self.model_cfg.MDN_CONFIG.NUM_MIXTURE_DIST)
         ])
-        self.mdn_pi_cls_layers = self.make_fc_layers(
+        self.mdn_pi_cls_layers_list = self.make_fc_layers(
             input_channels=channel_in,
             output_channels=self.model_cfg.MDN_CONFIG.NUM_MIXTURE_DIST,
             fc_list=self.model_cfg.REG_FC,
@@ -102,8 +103,12 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
                     init_func(m.weight)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-        # nn.init.normal_(self.reg_layers[-1].weight, mean=0, std=0.001)
+        for reg_layers in self.mdn_reg_layers_list:
+            nn.init.normal_(reg_layers[-1].weight, mean=0, std=0.001)
+        for reg_layers in self.mdn_sigma_reg_layers_list:
+            nn.init.normal_(reg_layers[-1].weight, mean=0, std=0.001)
 
+            
     def roipool3d_gpu(self, batch_dict):
         """
         Args:
@@ -187,7 +192,7 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
 
         rcnn_mdn_reg = []
         rcnn_mdn_reg_sigma = []
-        for reg_layers, var_reg_layers in zip(self.mdn_reg_layers, self.mdn_var_reg_layers):
+        for reg_layers, var_reg_layers in zip(self.mdn_reg_layers_list, self.mdn_sigma_reg_layers_list):
             mu = reg_layers(shared_features).transpose(1, 2).contiguous().squeeze(dim=1)  # (B, C)
             sigma = var_reg_layers(shared_features).transpose(1, 2).contiguous().squeeze(dim=1)  # (B, C)
             rcnn_mdn_reg.append(mu)
@@ -195,13 +200,13 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
         rcnn_mdn_reg = torch.stack(rcnn_mdn_reg, dim=1)  # (B,#G,C)
         rcnn_mdn_reg_sigma = torch.stack(rcnn_mdn_reg_sigma, dim=1) # (B,#G,C)
 
-        rcnn_mdn_reg_pi = self.mdn_pi_cls_layers(shared_features).transpose(1, 2).contiguous().squeeze(dim=1) # (B, #G)
+        rcnn_mdn_reg_pi = self.mdn_pi_cls_layers_list(shared_features).transpose(1, 2).contiguous().squeeze(dim=1) # (B, #G)
         rcnn_mdn_reg_pi = rcnn_mdn_reg_pi.softmax(dim=-1)  # (B, #G)
 
         if not self.training:
             # weighted mdn
-            rcnn_reg = rcnn_mdn_reg_pi.unsqueeze(-1) * rcnn_mdn_reg
-            rcnn_var = rcnn_mdn_reg_pi.unsqueeze(-1) * rcnn_mdn_reg_sigma ** 2
+            rcnn_reg = torch.mean(rcnn_mdn_reg_pi.unsqueeze(-1) * rcnn_mdn_reg, dim=1)
+            rcnn_var = torch.square(torch.mean(rcnn_mdn_reg_pi.unsqueeze(-1) * rcnn_mdn_reg_sigma, dim=1))
             batch_cls_preds, batch_box_preds = self.generate_predicted_boxes(
                 batch_size=batch_dict['batch_size'], rois=batch_dict['rois'], 
                 cls_preds=rcnn_cls, box_preds=rcnn_reg
@@ -253,6 +258,10 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
                 mdn_mu,
                 reg_targets,
             )
+            tb_dict["rcnn_mdn_pi_variance"] = torch.var(mdn_pi.detach(), dim=1, unbiased=False).mean().item()
+            tb_dict["rcnn_mdn_pi_max"] = torch.amax(mdn_pi.detach(), dim=1).mean().item()
+            tb_dict["rcnn_mdn_pi_min"] = torch.amin(mdn_pi.detach(), dim=1).mean().item()
+
             rcnn_loss_reg = (rcnn_loss_reg.view(rcnn_batch_size, -1) * fg_mask.unsqueeze(
                 dim=-1).float()).sum() / max(fg_sum, 1)
             rcnn_loss_reg = rcnn_loss_reg * loss_cfgs.LOSS_WEIGHTS['rcnn_reg_weight']

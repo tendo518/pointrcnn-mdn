@@ -7,6 +7,23 @@ import glob
 from torch.nn.utils import clip_grad_norm_
 from pcdet.utils import common_utils, commu_utils
 
+# def get_backward_hook(module_name: str):
+    
+#     class BackwardHook:
+#         name: str
+            
+#         def __init__(self, name):
+#             self.name = name
+            
+#         def __call__(self, module, grad_input, grad_output):
+#             for i, g_in in enumerate(grad_input):
+#                 print(module_name, torch.any(torch.isnan(g_in)))
+#                 if torch.any(torch.isnan(g_in)):
+#                     print(f"{module_name}'s {i}th input gradient is nan")
+#             for i, g_out in enumerate(grad_output):
+#                 if torch.any(torch.isnan(g_out)):
+#                     print(f"{module_name}'s {i}th output gradient is nan")
+#     return BackwardHook(module_name)
 
 def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, accumulated_iter, optim_cfg,
                     rank, tbar, total_it_each_epoch, dataloader_iter, tb_log=None, leave_pbar=False, 
@@ -59,13 +76,13 @@ def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, ac
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         clip_grad_norm_(model.parameters(), optim_cfg.GRAD_NORM_CLIP)
-        nan_skip_flag = False
-        for name, param in model.named_parameters():
-            if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
-                logger.warn(f"{name} have ambiguous gradient, skip iteration")
-                nan_skip_flag = True
-        if nan_skip_flag:
-            continue
+        # nan_skip_flag = False
+        # for name, param in model.named_parameters():
+        #     if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
+        #         nan_skip_flag = True
+        # if nan_skip_flag:
+        #     logger.warn("ambiguous gradient, skip iteration")
+        #     continue
         
         scaler.step(optimizer)
         scaler.update()
@@ -163,6 +180,9 @@ def train_model(model, optimizer, train_loader, model_func, lr_scheduler, optim_
                 use_logger_to_record=False, logger=None, logger_iter_interval=None, ckpt_save_time_interval=None, show_gpu_stat=False, cfg=None):
     accumulated_iter = start_iter
 
+    # # debug backward with hook
+    # for name, module in model.named_modules():
+    #     module.register_full_backward_hook(get_backward_hook(name))
     # use for disable data augmentation hook
     hook_config = cfg.get('HOOK', None) 
     augment_disable_flag = False

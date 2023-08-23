@@ -205,6 +205,12 @@ class Detector3DTemplate(nn.Module):
                 batch_mask = index
 
             box_preds = batch_dict['batch_box_preds'][batch_mask]
+            al_preds, ep_preds = None, None
+            if batch_dict.get('batch_al_preds', None) is not None:
+                al_preds = batch_dict['batch_al_preds'][batch_mask]
+            if batch_dict.get('batch_ep_preds', None) is not None:
+                ep_preds = batch_dict['batch_ep_preds'][batch_mask]
+
             src_box_preds = box_preds
             
             if not isinstance(batch_dict['batch_cls_preds'], list):
@@ -247,6 +253,11 @@ class Detector3DTemplate(nn.Module):
                 final_scores = torch.cat(pred_scores, dim=0)
                 final_labels = torch.cat(pred_labels, dim=0)
                 final_boxes = torch.cat(pred_boxes, dim=0)
+                final_al, final_ep = None, None
+                if al_preds is not None:
+                    final_al = torch.cat(al_preds, dim=0)
+                if ep_preds is not None:
+                    final_ep = torch.cat(ep_preds, dim=0)
             else:
                 cls_preds, label_preds = torch.max(cls_preds, dim=-1)
                 if batch_dict.get('has_class_labels', False):
@@ -267,6 +278,11 @@ class Detector3DTemplate(nn.Module):
                 final_scores = selected_scores
                 final_labels = label_preds[selected]
                 final_boxes = box_preds[selected]
+                final_al, final_ep = None, None
+                if al_preds is not None:
+                    final_al = al_preds[selected]
+                if ep_preds is not None:
+                    final_ep = ep_preds[selected]
                     
             recall_dict = self.generate_recall_record(
                 box_preds=final_boxes if 'rois' not in batch_dict else src_box_preds,
@@ -279,6 +295,10 @@ class Detector3DTemplate(nn.Module):
                 'pred_scores': final_scores,
                 'pred_labels': final_labels
             }
+            if final_al is not None:
+                record_dict.update({'pred_als': final_al})
+            if final_ep is not None:
+                record_dict.update({'pred_eps': final_ep})
             pred_dicts.append(record_dict)
 
         return pred_dicts, recall_dict

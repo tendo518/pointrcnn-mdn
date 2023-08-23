@@ -205,17 +205,18 @@ class PointRCNNHeadMDN(RoIHeadTemplate):
 
         if not self.training:
             # weighted mdn
-            rcnn_reg = torch.mean(rcnn_mdn_reg_pi.unsqueeze(-1) * rcnn_mdn_reg, dim=1)
-            rcnn_var = torch.square(torch.mean(rcnn_mdn_reg_pi.unsqueeze(-1) * rcnn_mdn_reg_sigma, dim=1))
+            rcnn_reg = torch.sum(rcnn_mdn_reg_pi.unsqueeze(-1) * rcnn_mdn_reg, dim=1)
+            rcnn_al = torch.sum(rcnn_mdn_reg_pi.unsqueeze(-1) * torch.square(rcnn_mdn_reg_sigma), dim=1)
+            rcnn_ep = torch.sum(rcnn_mdn_reg_pi.unsqueeze(-1) * torch.square(rcnn_mdn_reg - rcnn_reg.unsqueeze(1)), dim=1)
             batch_cls_preds, batch_box_preds = self.generate_predicted_boxes(
                 batch_size=batch_dict['batch_size'], rois=batch_dict['rois'], 
                 cls_preds=rcnn_cls, box_preds=rcnn_reg
             )
-            batch_uncertainty_preds = rcnn_var.reshape_as(batch_box_preds)
             batch_dict['batch_cls_preds'] = batch_cls_preds
-            batch_dict['batch_box_preds'] = batch_box_preds
-            batch_dict['batch_uncertainty_preds'] = batch_uncertainty_preds
+            batch_dict['batch_box_preds'] = batch_box_preds  # (BS, N, C)
             batch_dict['cls_preds_normalized'] = False
+            batch_dict['batch_al_preds'] = rcnn_al.reshape_as(batch_box_preds) 
+            batch_dict['batch_ep_preds'] = rcnn_ep.reshape_as(batch_box_preds) 
         else:
             targets_dict['rcnn_cls'] = rcnn_cls
             targets_dict['rcnn_mdn_mu'] = rcnn_mdn_reg

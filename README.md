@@ -7,7 +7,8 @@ A Mixture Density Networks (MDN) implementation of pointrcnn, based on [openpcde
 train with:
 
 ```sh
-python train.py --cfg_file cfgs/kitti_models/pointrcnn_mdn.yaml 
+# car only detection model
+python train.py --cfg_file cfgs/kitti_models/pointrcnn_mdn_car.yaml 
 ```
 
 ##  Examples
